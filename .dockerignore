@@ -1,0 +1,10 @@
+node_modules
+.git
+.env
+.env.*
+.venv
+.sites-runtime
+dist
+.wrangler
+__pycache__
+*.pyc
