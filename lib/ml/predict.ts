@@ -22,12 +22,18 @@ let LOADED = false;
 export async function loadModel(): Promise<Model | null> {
   if (LOADED) return MODEL;
   LOADED = true;
+  // Model runs in the BROWSER only. It is fetched as a static asset (not bundled
+  // into the server/Worker), so the Cloudflare Worker never parses or executes
+  // it — this avoids the Worker CPU/memory limit (Error 1102). On the server
+  // (no window) we skip loading entirely and callers use the rule engine.
+  if (typeof window === "undefined") { MODEL = null; return null; }
   try {
-    // bundled at build time; kept out of the hot path via dynamic import
-    const data = (await import("./model.json")).default as Model;
+    const res = await fetch("/model.json");
+    if (!res.ok) throw new Error("model asset unavailable");
+    const data = (await res.json()) as Model;
     if (data && data.format === "thermowatch-hgb-1") MODEL = data;
   } catch {
-    MODEL = null; // no model shipped -> rule engine handles everything
+    MODEL = null; // no model -> rule engine handles everything
   }
   return MODEL;
 }
