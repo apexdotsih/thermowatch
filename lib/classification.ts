@@ -1,12 +1,15 @@
 import type { ThermalEvent } from './thermal';
+import { predict as mlPredict } from './ml/predict';
+import { screenWater } from './ml/water-guard';
 
-export const RULE_VERSION = 'sih26162-rules-2';
+export const RULE_VERSION = 'sih26162-rules-3-ml';
 export const CATEGORIES = {
   industrial_fire: { label: 'Industrial Fire', color: '#ef4444' },
   persistent: { label: 'Persistent Thermal Source', color: '#f59e0b' },
   forest: { label: 'Forest / Wildfire', color: '#22c55e' },
   agriculture: { label: 'Agricultural Burning', color: '#eab308' },
   mining: { label: 'Mining Activity', color: '#a855f7' },
+  offshore_industrial: { label: 'Offshore Industrial', color: '#38bdf8' },
   unknown: { label: 'Unknown', color: '#94a3b8' },
 } as const;
 export type Category = keyof typeof CATEGORIES;
@@ -54,8 +57,57 @@ export function inferRegionLand(latitude: number, longitude: number): 'industria
   return 'unmapped';
 }
 
-// Scores describe rule support, not calibrated probabilities or incident verification.
+/**
+ * Public entry point. Order of decision:
+ *   1. Water / sun-glint guard  — removes impossible ocean fires, re-routes
+ *      genuine offshore flares. Runs first so no later layer can label the sea.
+ *   2. Trained ML model         — gradient-boosted classifier (lib/ml).
+ *   3. Rule engine (fallback)   — always available, fully explainable, used
+ *      whenever the model is absent, errors, or is not confident.
+ */
 export function classify(event: ThermalEvent, context?: Context, persistence?: Persistence): Classification {
+  const persistDays = persistence?.status === 'ready' ? persistence.days : 0;
+  const baselineFrp = persistence?.status === 'ready' ? persistence.baseline_frp : null;
+  const frpRatio = baselineFrp && baselineFrp > 0 ? event.frp / baselineFrp : null;
+
+  // ── 1. water / glint guard ──
+  const water = screenWater(event, persistDays, frpRatio);
+  if (water.kind === 'offshore_industrial') {
+    return { category: 'offshore_industrial', confidence: 78, reasons: [
+      `${event.frp.toFixed(1)} MW FRP over water.`, water.reason,
+    ], context, persistence, rule_version: RULE_VERSION };
+  }
+  if (water.kind === 'reject') {
+    return { category: 'unknown', confidence: null, reasons: [
+      `${event.frp.toFixed(1)} MW FRP over water.`, water.reason,
+    ], context, persistence, rule_version: RULE_VERSION };
+  }
+
+  // land context the model needs (same inference the rule engine uses)
+  const inferred = inferRegionLand(event.latitude, event.longitude);
+
+  // ── 2. trained ML model ──
+  const ml = mlPredict(event, context, persistence, inferred);
+  if (ml && ml.confidence >= 55) {
+    const rule = classifyRules(event, context, persistence);
+    return {
+      category: ml.category,
+      confidence: Math.round(ml.confidence),
+      subtype: rule.subtype,
+      reasons: [
+        `Model: ${CATEGORIES[ml.category]?.label ?? ml.category} at ${ml.confidence.toFixed(0)}% confidence.`,
+        ...rule.reasons.slice(1),
+      ],
+      context, persistence, rule_version: 'ml+' + RULE_VERSION,
+    };
+  }
+
+  // ── 3. rule-engine fallback ──
+  return classifyRules(event, context, persistence);
+}
+
+// Scores describe rule support, not calibrated probabilities or incident verification.
+export function classifyRules(event: ThermalEvent, context?: Context, persistence?: Persistence): Classification {
   const reasons: string[] = [];
   const result = (category: Category, confidence: number | null, subtype?: string): Classification => ({category, confidence: confidence === null ? null : Math.max(0,Math.min(95,confidence-(event.confidence === 'l' ? 20 : 0))), subtype, reasons, context, persistence, rule_version:RULE_VERSION});
 

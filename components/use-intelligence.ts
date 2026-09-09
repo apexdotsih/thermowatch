@@ -1,10 +1,13 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classify, type Context, type Persistence } from '@/lib/classification';
+import { loadModel } from '@/lib/ml/predict';
 import { demoIntelligence } from '@/lib/demo-intelligence';
 import type { ThermalEvent } from '@/lib/thermal';
 const tile=(p:ThermalEvent)=>`${Math.floor(p.latitude*50)},${Math.floor(p.longitude*50)}`;
 export function useIntelligence(events:ThermalEvent[],sample:boolean) {
+  const [modelReady,setModelReady]=useState(false);
+  useEffect(()=>{let live=true;loadModel().then(()=>{if(live)setModelReady(true);});return()=>{live=false;};},[]);
   const [contexts,setContexts]=useState<Record<string,Context>>({});
   const [history,setHistory]=useState<Record<string,Persistence>>({});
   const [working,setWorking]=useState(false),[historyState,setHistoryState]=useState('pending');
@@ -41,7 +44,7 @@ export function useIntelligence(events:ThermalEvent[],sample:boolean) {
     })();
     return()=>{disposed=true;controller.abort();};
   },[events,sample,revision]);
-  const classified=useMemo(()=>events.map((e,i)=>{const demo=sample?demoIntelligence(i):null;return {...e,classification:classify(e,demo?.context??contexts[e.id],demo?.persistence??history[e.id])};}),[events,sample,contexts,history]);
+  const classified=useMemo(()=>events.map((e,i)=>{const demo=sample?demoIntelligence(i):null;return {...e,classification:classify(e,demo?.context??contexts[e.id],demo?.persistence??history[e.id])};}),[events,sample,contexts,history,modelReady]);
   const checked=sample?events.length:events.filter(e=>contexts[e.id]?.status==='ready').length;
   return {events:classified,working,checked,historyState:sample?'sample':historyState,prioritize,retry:()=>setRevision(v=>v+1)};
 }

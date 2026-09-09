@@ -20,22 +20,22 @@ test('fictional scenarios classify into valid, substantive categories',()=>{
  const s=summarize(output);assert.equal(s.total,12);assert.equal(s.total,s.industrial+s.persistent+s.natural+s.mining+s.unknown);
 });
 test('missing/unavailable OSM falls back to geographic + intrinsic classification',()=>{
- assert.equal(classify(event).category,'industrial_fire');assert.equal(classify(event,context).category,'industrial_fire');
- assert.equal(classify(event,{...context,status:'unavailable'},persistence).category,'industrial_fire');
- assert.equal(classify(event,context,{...persistence,days:1}).category,'industrial_fire');
+ assert.equal(classifyRules(event).category,'industrial_fire');assert.equal(classifyRules(event,context).category,'industrial_fire');
+ assert.equal(classifyRules(event,{...context,status:'unavailable'},persistence).category,'industrial_fire');
+ assert.equal(classifyRules(event,context,{...persistence,days:1}).category,'industrial_fire');
 });
 test('stable repeated industrial source and FRP anomaly take different paths',()=>{
- assert.equal(classify({...event,frp:21},context,persistence).category,'persistent');
- assert.equal(classify({...event,frp:90},context,persistence).category,'industrial_fire');
- assert.equal(classify({...event,frp:90,brightness_ti4:null},context,persistence).category,'persistent');
- assert.equal(classify({...event,frp:90},context,{...persistence,baseline_frp:null}).category,'industrial_fire');
- assert.ok(classify({...event,frp:90,confidence:'l'},context,persistence).confidence<80);
+ assert.equal(classifyRules({...event,frp:21},context,persistence).category,'persistent');
+ assert.equal(classifyRules({...event,frp:90},context,persistence).category,'industrial_fire');
+ assert.equal(classifyRules({...event,frp:90,brightness_ti4:null},context,persistence).category,'persistent');
+ assert.equal(classifyRules({...event,frp:90},context,{...persistence,baseline_frp:null}).category,'industrial_fire');
+ assert.ok(classifyRules({...event,frp:90,confidence:'l'},context,persistence).confidence<80);
 });
 test('land-cover conflicts and nearby industry prevent overconfident natural attribution',()=>{
- assert.equal(classify(event,{...context,land_cover:'mixed'},persistence).category,'unknown');
- assert.equal(classify(event,{...context,land_cover:'forest'},undefined).category,'industrial_fire');
- assert.equal(classify(event,{...context,facility:null,land_cover:'forest'}).category,'forest');
- assert.equal(classify(event,{...context,facility:null,land_cover:'unmapped'}).category,'industrial_fire');
+ assert.equal(classifyRules(event,{...context,land_cover:'mixed'},persistence).category,'unknown');
+ assert.equal(classifyRules(event,{...context,land_cover:'forest'},undefined).category,'industrial_fire');
+ assert.equal(classifyRules(event,{...context,facility:null,land_cover:'forest'}).category,'forest');
+ assert.equal(classifyRules(event,{...context,facility:null,land_cover:'unmapped'}).category,'industrial_fire');
 });
 test('geometry uses containment, holes and edge distance rather than centroids',()=>{
  assert.equal(contains(p,polygon),true);assert.equal(geometryDistance(p,polygon),0);
